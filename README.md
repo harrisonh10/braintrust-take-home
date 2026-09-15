@@ -1,89 +1,111 @@
-# Braintrust project export (customer script)
+# Braintrust project export
 
-Exports **every experiment and dataset** in one project as JSON, using Braintrust's generated Python API SDK (`braintrust-api`) and its `/btql` query endpoint (`SELECT `* / `select: *`). That is the API equivalent of the UI **Export → JSON → all fields** option: native event column names (`input`, `output`, `expected`, `scores`, `metadata`, `metrics`, `span_attributes`, `tags`, `error`, ids, timestamps, and any other stored fields), not a reduced table view.
+Braintrust sent you this repository because experiment or dataset export in the web app is not completing for a project. Run the script here on your machine to download the same data (JSON and CSV, all fields) and send the resulting zip back to Braintrust support.
 
-The UI export can hang in the browser even after the control plane returns 200. This script pages on the **data plane** and streams into a zip so large objects still complete.
+The zip does **not** include your API key.
 
-## Zip contents
+## What you need
 
+- Python 3.10 or newer
+- Read access to the project in Braintrust
+- An API key: [Settings → API keys](https://www.braintrust.dev/app/settings?subroute=api-keys)
+- The **project name** or **project ID** (UUID). The ID is in the project URL, or in the project Details pane.
 
-| File                    | What it is                                                                                                                                               |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `full_traces.json`      | Experiment **traces** (`shape => traces`): one JSON object per root trace, nested spans included. Same grain as the experiment table **Traces** view.    |
-| `experiment_spans.json` | Experiment **span rows**: root and nested spans as separate objects. Same grain as the **Spans** row type.                                               |
-| `dataset_rows.json`     | All dataset events, all columns.                                                                                                                         |
-| `manifest.json`         | Per-object row counts, byte sizes, max row size, dotted column names, durations, and errors. Use this to find which objects are unusually large or wide. |
+If your API key belongs to more than one organization, also note the organization name.
 
+If you are on a self-hosted Braintrust deployment, also note your app URL (Settings → Data plane / the URL you use to open the product). Hosted customers can skip this.
 
-Each JSON data file is a single JSON **array**. Rows keep Braintrust field names. `experiment_id` / `dataset_id` on each event identify which object a row belongs to.
+## 1. Get this repo
 
-## Prerequisites
+```bash
+git clone https://github.com/harrisonh10/braintrust-take-home.git
+cd braintrust-take-home
+```
 
-- Python 3.10+
-- The official `braintrust-api` Python SDK (installed by `requirements.txt`).
-- A Braintrust **API key** (Settings → API keys). The key must be able to read the project.
-- Your **self-hosted / hybrid data-plane API URL** (Settings → Data plane). Example: `https://xxxxxxxx.cloudfront.net`.
-- The **project ID** (UUID). Open the project in the app; copy the id from the URL or from the project Details pane.
+If you were given a zip of the repo instead of the GitHub link, unzip it and `cd` into that folder.
 
-Do **not** put the API key in the script. Use an environment variable.
-
-## Run
+## 2. Install
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-
-export BRAINTRUST_API_KEY="sk-...."
-export BRAINTRUST_API_URL="https://YOUR_DATA_PLANE_API_URL"
-
-python export_project.py --project-id "00000000-0000-0000-0000-000000000000"
 ```
 
-Optional flags:
+## 3. Set your API key
 
 ```bash
-python export_project.py \
-  --project-id "00000000-0000-0000-0000-000000000000" \
-  --api-url "$BRAINTRUST_API_URL" \
-  --output "./braintrust-export.zip"
+export BRAINTRUST_API_KEY="sk-..."
 ```
 
-`--api-key` exists but is discouraged (shell history). Prefer `BRAINTRUST_API_KEY`.
+Windows (PowerShell):
 
-When it finishes, send Braintrust the zip (or at least `manifest.json` plus any objects whose `likely_ui_risks` is non-empty).
+```powershell
+$env:BRAINTRUST_API_KEY="sk-..."
+```
 
-## After export
+Do not put the key in the script or commit it.
+
+Optional, only if needed:
 
 ```bash
-unzip -l braintrust-export-<project-id>.zip
-python3 -m json.tool manifest.json | less
+export BRAINTRUST_ORG_NAME="your-org-name"
+export BRAINTRUST_APP_URL="https://www.braintrust.dev"   # self-hosted: your app URL
 ```
 
-`manifest.json` → `likely_ui_risks` flags:
+## 4. Run the export
 
-- `more_than_1000_rows` — UI downloads are documented as capped / heavy in-memory
-- `payload_over_25mb` — likely to stall a browser download
-- `single_row_over_1mb` — pathological nested input/output/trace
-- `very_wide_schema` — many score/metadata/classifier columns
+By project name:
 
+```bash
+python export_project.py --project "Your Project Name"
+```
 
+By project ID:
+
+```bash
+python export_project.py --project-id 00000000-0000-0000-0000-000000000000
+```
+
+`--project` accepts either a name or a UUID. To choose the zip path:
+
+```bash
+python export_project.py --project "Your Project Name" --output ./braintrust-export.zip
+```
+
+The script prints progress as it walks experiments and datasets. When it finishes, you will have a file like:
+
+`braintrust-export-<project>-<timestamp>.zip`
+
+## 5. Send it to Braintrust
+
+Reply to the support thread (or whoever sent you this link) and attach that zip.
+
+If some objects fail, still send the zip. Failures are listed in `manifest.json` and in an `error.json` next to the object that failed.
+
+## What’s in the zip
+
+| Path | What it is |
+| --- | --- |
+| `project.json` | Project metadata |
+| `manifest.json` | Inventory, row counts, any failures |
+| `experiments/<name>__<id>/export.json` | Experiment traces, all fields (UI JSON export) |
+| `experiments/<name>__<id>/export.csv` | Same rows, flattened columns (UI CSV export) |
+| `experiments/<name>__<id>/spans.json` | Every span, not just traces |
+| `experiments/<name>__<id>/metadata.json` | Experiment object |
+| `experiments/<name>__<id>/summary.json` | Score / metric summary |
+| `experiments/<name>__<id>/diagnostics.json` | Size and shape stats for support |
+| `datasets/<name>__<id>/export.json` | Dataset records, all fields |
+| `datasets/<name>__<id>/export.csv` | Same rows as CSV |
+| `datasets/<name>__<id>/metadata.json` | Dataset object |
+| `datasets/<name>__<id>/diagnostics.json` | Size and shape stats for support |
 
 ## Troubleshooting
 
-
-| Symptom                           | What to check                                                                                                                                       |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Missing API URL / 404             | `BRAINTRUST_API_URL` must be the **data plane** URL, not `https://www.braintrust.dev`. Strip a trailing `/v1` if you copied it from a REST example. |
-| 401 / 403                         | New API key; confirm it belongs to the same org as the project.                                                                                     |
-| One object errors, others succeed | See that object's `error` in `manifest.json`. The zip still contains the rest.                                                                      |
-| Slow                              | Normal for large traces. The script pages 1000 rows at a time and retries 429/5xx.                                                                  |
-
-
-
-
-## SDK usage
-
-The script uses `Braintrust.projects`, `Braintrust.experiments`, and
-`Braintrust.datasets` to retrieve the project, discover all objects, and fetch
-event pages. The generated SDK does not currently expose `/btql` as a named resource, so the trace-shaped `SELECT *` query is sent through the SDK's generic `client.post()` method; authentication, base URL handling, retries, and HTTP transport still come from the SDK.
+| Symptom | What to try |
+| --- | --- |
+| Prompted for a token / 401 | Create a new API key and export `BRAINTRUST_API_KEY` in the same terminal you run the script. |
+| 403 / project not found | Confirm the key is in the same org as the project. Set `BRAINTRUST_ORG_NAME` if you belong to multiple orgs. |
+| Self-hosted 404 | Set `BRAINTRUST_APP_URL` to the URL you use to open Braintrust, not `https://www.braintrust.dev`. |
+| One object fails, others succeed | Send the zip anyway; check `manifest.json`. |
+| Slow | Expected for large experiments. The script pages through data instead of loading everything in the browser. |
